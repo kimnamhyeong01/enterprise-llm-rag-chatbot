@@ -1,0 +1,7 @@
+이 파일은 RAG 데모용 내부 지식 베이스입니다.
+
+- LangChain은 Python 기반 LLM 오케스트레이션 프레임워크이다.
+- LangGraph는 LangChain Runnable을 기반으로 한 그래프형 에이전트 프레임워크이다.
+- Streamlit은 Python만으로 웹 UI를 만드는 프런트엔드 프레임워크이다.
+
+이 외에 강의에서 다룰 내용들을 자유롭게 추가하면 RAG 품질이 올라간다.
