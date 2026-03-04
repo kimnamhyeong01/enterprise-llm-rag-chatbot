@@ -1,198 +1,428 @@
-# 전사 업무 지원 Multi-Domain RAG 챗봇 서비스
+# 전사 시스템 특화 RAG 챗봇 LLM 서비스 구현 지시 문서
 
-## 프로젝트 개요
+본 문서는 전사 업무 지원을 위한 **RAG 기반 LLM 챗봇 시스템 구현을 위한 개발 지시사항**이다.  
+목표는 다양한 사내 업무 지식을 기반으로 **도메인별 RAG 챗봇 기능을 제공하는 AI 서비스**를 구축하는 것이다.
 
-전사 직원이 업무 중 발생하는 다양한 질문을 AI가 즉시 응답하는 **RAG(Retrieval-Augmented Generation) 기반 챗봇 서비스**다. 현장 매뉴얼, 사내 규정/HR, IT 헬프데스크, 영업/고객 대응, 교육/온보딩 등 **5개 업무 도메인**을 자동 라우팅하여 도메인별 사내 지식 문서를 기반으로 정확한 답변을 제공한다.
+기존 코드베이스는 **베이스 코드**로 간주하며, 필요한 경우 자유롭게 수정 및 확장할 수 있다.
 
----
+최종 결과물은 다음과 같은 특징을 가져야 한다.
 
-## 해결한 문제
-
-| 기존 문제 | 해결 방안 |
-|-----------|-----------|
-| 업무 질문마다 담당 부서 문의 → 응답 지연 | AI가 즉시 자동 응답 |
-| 매뉴얼/규정 문서가 방대하여 직접 검색 어려움 | RAG로 관련 문서만 발췌해 답변 생성 |
-| 도메인별 담당자가 달라 어디에 물어볼지 모름 | LLM이 질문 의도를 파악해 자동 도메인 라우팅 |
-| 현장 작업자가 설비 사진으로 문제 설명 불가 | 이미지 업로드 → 멀티모달 AI 분석 지원 |
-| 지식 문서 업데이트 시 즉각 반영 불가 | 벡터 DB 재색인으로 즉시 반영 가능한 구조 |
+- 도메인별 RAG 기반 챗봇 기능 제공
+- 사용자 질의 기반 Query Routing
+- 백엔드 AI 모델 서빙
+- 프론트엔드 챗 인터페이스 연동
+- Docker 기반 실행 환경
+- 기능 테스트를 위한 테스트 시나리오 제공
 
 ---
 
-## 지원 도메인
+# 1. 구현 목표
 
-| 도메인 | 설명 | 지식 문서 |
-|--------|------|-----------|
-| 🔧 현장 매뉴얼 | 설비·공정·알람 조치, 에러 코드, 필터 교체 | `equipment_manual.txt`, `safety_manual.txt`, `troubleshooting.txt` |
-| 👤 사내 규정/HR | 연차·출장비·재택근무 등 인사/복지 정책 | `hr_policy.txt`, `expense_policy.txt`, `vacation_policy.txt` |
-| 💻 IT 헬프데스크 | VPN·SAP·이메일 등 IT 장애 대응 | `vpn_troubleshooting.txt`, `email_issue.txt` |
-| 📊 영업/고객 대응 | 제품 비교, 경쟁사 분석, 고객 응대 전략 | `product_info.txt`, `competitor_analysis.txt` |
-| 📚 교육/온보딩 | 공정 흐름, 품질 기준, 신입 교육 | `training_manual.txt`, `process_guide.txt` |
+본 프로젝트의 최종 목표는 다음과 같다.
 
----
-
-## 시스템 아키텍처
-
-```
-사용자 질문 (텍스트 + 선택적 이미지)
-        │
-        ▼
-  [Streamlit 프론트엔드]
-  - 도메인 배지 표시
-  - 참고 문서 출처 표시
-  - 이미지 업로드 (Base64 인코딩)
-        │ POST /chat
-        ▼
-  [FastAPI 백엔드]
-        │
-        ▼
-  [LangGraph 파이프라인]
-  ┌─────────────────────────────┐
-  │ router_node                 │
-  │  LLM 기반 도메인 분류        │
-  │  + 키워드 폴백 분류           │
-  └────────────┬────────────────┘
-               │ domain 결정
-               ▼
-  ┌─────────────────────────────┐
-  │ retriever_node              │
-  │  Chroma 벡터 DB 검색         │
-  │  도메인별 컬렉션에서 Top-K 문서│
-  └────────────┬────────────────┘
-               │ context + sources
-               ▼
-  ┌─────────────────────────────┐
-  │ generator_node              │
-  │  도메인 전용 System Prompt   │
-  │  LLM 답변 생성               │
-  └────────────┬────────────────┘
-               │
-               ▼
-  {reply, domain, sources} → 프론트엔드 응답
-```
+1. 전사 업무 데이터를 활용한 **RAG 기반 챗봇 시스템 구현**
+2. 여러 업무 도메인을 지원하는 **Multi-RAG Architecture**
+3. 사용자 질문 기반 **도메인 라우팅**
+4. 백엔드 AI 서비스와 프론트엔드 인터페이스 연결
+5. Docker 환경에서 실행 가능한 서비스 구성
+6. 기능 테스트를 위한 테스트 시나리오 제공
 
 ---
 
-## 기술 스택
+# 2. 구현해야 할 주요 기능
 
-### 백엔드
-| 구성 요소 | 기술 | 역할 |
-|-----------|------|------|
-| API 서버 | FastAPI | REST API 서빙, `/chat`, `/health` 엔드포인트 |
-| AI 오케스트레이션 | LangGraph | 3-노드 상태 그래프 파이프라인 |
-| LLM | OpenAI gpt-4o-mini | 도메인 분류 + 답변 생성 |
-| 임베딩 | OpenAI text-embedding-3-small | 문서 벡터화 |
-| 벡터 DB | Chroma | 도메인별 컬렉션 관리, 유사 문서 검색 |
-| RAG 프레임워크 | LangChain | 문서 로드, 청킹, 검색기 구성 |
+## 2.1 현장 매뉴얼 / 작업지시 챗봇
 
-### 프론트엔드
-| 구성 요소 | 기술 | 역할 |
-|-----------|------|------|
-| UI 프레임워크 | Streamlit | 채팅 인터페이스 구현 |
-| 이미지 처리 | Base64 인코딩 | 현장 사진 멀티모달 전송 |
+현장 작업자가 설비 및 공정 관련 문제를 빠르게 해결할 수 있도록 지원하는 챗봇 기능이다.
 
-### 인프라
-| 구성 요소 | 기술 | 역할 |
-|-----------|------|------|
-| 컨테이너화 | Docker + Docker Compose | 서비스 패키징 및 오케스트레이션 |
-| 런타임 | Python 3.11 | 백엔드/프론트엔드 공통 |
+### 개념
 
----
+작업자가 설비, 공정, 안전 관련 질문을 하면 매뉴얼, SOP, 기술 문서를 **RAG 방식으로 검색**하여 답변을 생성한다.
 
-## 핵심 구현 상세
+### 예시 질문
 
-### 1. Query Router (LLM + 키워드 폴백)
+- 3번 라인에서 압력 이상 알람 뜨면 어떻게 조치해야 해?
+- A장비 필터 교체 주기?
+- 이 에러 코드 E-204 의미?
 
-사용자 질문을 5개 도메인 중 하나로 분류한다. LLM이 1차 분류를 수행하고, 유효하지 않은 응답이 반환되면 키워드 매칭으로 폴백한다.
+### RAG 데이터
 
-```python
-# router.py
-def classify_domain(query: str) -> str:
-    response = _router_llm.invoke([("system", _ROUTER_SYSTEM), ("human", query)])
-    domain = response.content.strip().lower()
-    if domain not in valid_domains:
-        domain = _keyword_fallback(query)  # 폴백
-    return domain
-```
+- 작업 매뉴얼
+- SOP
+- 장비 매뉴얼
+- 안전 규정
+- 트러블슈팅 문서
 
-### 2. LangGraph 상태 관리 (ChatState)
+### 추가 기능
 
-```python
-class ChatState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]  # 대화 이력
-    domain: str      # 분류된 도메인 키
-    context: str     # 검색된 문서 텍스트
-    sources: List[str]  # 참고 문서 파일명 목록
-```
-
-### 3. 멀티 도메인 Chroma 벡터 DB
-
-도메인별 독립 컬렉션(`rag_manual`, `rag_hr`, `rag_it`, `rag_sales`, `rag_education`)을 구성하고, 최초 호출 시 지식 문서를 로드·청킹(chunk_size=500, overlap=80)하여 벡터 DB를 생성한다. 이후 호출에서는 메모리 캐시에서 검색기를 반환한다.
-
-### 4. 지식 문서 구성
-
-```
-backend/knowledge/
-├── manual/   equipment_manual.txt, safety_manual.txt, troubleshooting.txt
-├── hr/       hr_policy.txt, expense_policy.txt, vacation_policy.txt
-├── it/       vpn_troubleshooting.txt, email_issue.txt
-├── sales/    product_info.txt, competitor_analysis.txt
-└── education/ training_manual.txt, process_guide.txt
-```
-
-### 5. 이미지 첨부 (멀티모달)
-
-현장 작업자가 설비 사진을 업로드하면 Base64로 인코딩하여 백엔드에 전달하고, LLM이 이미지와 텍스트를 함께 분석하여 답변을 생성한다.
+- 사진 업로드 → 문제 상황 추정
+- 단계별 조치 안내
+- 관련 문서 링크 제공
 
 ---
 
-## API 명세
+## 2.2 사내 규정 / HR 챗봇
 
-### POST /chat
-```json
-// 요청
-{
-  "thread_id": "uuid",
-  "user_input": "3번 라인 압력 알람 조치 방법",
-  "image_base64": "optional_base64_string",
-  "image_media_type": "image/jpeg"
-}
+사내 인사 및 복지 관련 질문을 자동 응답하는 기능이다.
 
-// 응답
-{
-  "reply": "3번 라인에서 압력 이상 알람이 발생하면...",
-  "domain": "manual",
-  "sources": ["equipment_manual.txt", "troubleshooting.txt"]
-}
+### 예시 질문
+
+- 출장비 규정 뭐야?
+- 연차 이월 규칙?
+- 재택근무 신청 절차?
+
+### RAG 데이터
+
+- 인사 규정
+- 복지 정책
+- 경비 처리 규정
+- 근태 규정
+
+### 확장 기능
+
+- 질문에 맞는 신청 페이지 링크 제공
+- 규정 업데이트 시 문서 업데이트 반영
+
+---
+
+## 2.3 장애 대응 / IT 헬프데스크 챗봇
+
+IT 시스템 장애 대응을 지원하는 기능이다.
+
+### 예시 질문
+
+- VPN 접속 안될 때 어떻게 해야 해?
+- SAP 로그인 오류
+- 메일 용량 초과 해결 방법
+
+### RAG 데이터
+
+- IT 운영 매뉴얼
+- 장애 대응 가이드
+- FAQ
+- 과거 티켓 해결 이력
+
+### 추가 기능
+
+- 해결 불가 시 티켓 생성 안내
+- 로그 분석 연동 가능하도록 구조 설계
+
+---
+
+## 2.4 영업 / 고객 대응 지원 챗봇
+
+영업 및 고객 대응을 지원하는 기능이다.
+
+### 기능
+
+- 제품 정보 조회
+- 제안서 작성 지원
+- 경쟁사 비교
+
+### 예시 질문
+
+- A제품과 B제품 차이
+- 고객이 이 기능 물어보면 어떻게 답해?
+
+### RAG 데이터
+
+- 제품 매뉴얼
+- 영업 자료
+- 경쟁 분석 자료
+- 과거 제안서
+
+---
+
+## 2.5 공정 데이터 + 문서 RAG (고급 기능)
+
+문서 기반 RAG뿐 아니라 **데이터 분석 기반 응답**을 제공하는 기능이다.
+
+### 예시 질문
+
+- 이번 달 불량률 왜 높아졌어?
+- 3라인 최근 1주일 다운타임 이유?
+
+### 데이터 구성
+
+문서 데이터
+
+- 공정 보고서
+- 품질 분석 보고서
+- 설비 로그 설명 문서
+
+데이터 소스
+
+- MES
+- 생산 DB
+- 품질 데이터
+
+LLM이 문서와 데이터를 함께 분석하여 답변하도록 구조 설계한다.
+
+---
+
+## 2.6 보고서 자동 생성 챗봇
+
+관리자가 사용할 수 있는 보고서 자동 생성 기능이다.
+
+### 예시 질문
+
+- 이번 주 생산 보고서 만들어줘
+- 지난달 품질 이슈 요약
+
+### RAG 데이터
+
+- 과거 보고서
+- KPI 정의 문서
+- 운영 보고 템플릿
+
+### 결과
+
+회사 보고 스타일 기반 자동 보고서 생성
+
+---
+
+## 2.7 교육 / 온보딩 챗봇
+
+신입 직원 교육을 지원하는 기능이다.
+
+### 예시 질문
+
+- 이 공정 전체 흐름 설명해줘
+- 품질 검사 기준 뭐야?
+
+### RAG 데이터
+
+- 교육 자료
+- 사내 위키
+- 교육 PPT
+- 교육 영상 transcript
+
+---
+
+# 3. 설계 계획
+
+## 3.1 Query Routing 구조
+
+사용자 질문을 분석하여 **적절한 도메인 RAG로 라우팅**한다.
+
+예시
+
+- HR 관련 질문 → HR RAG
+- IT 장애 질문 → IT RAG
+- 설비 관련 질문 → Manual RAG
+
+라우팅 방식
+
+- 키워드 기반 라우팅
+- LLM 기반 분류
+
+---
+
+## 3.2 도메인별 RAG 파이프라인
+
+각 기능별로 별도의 RAG 파이프라인을 구성한다.
+
+기본 흐름
+
 ```
-
-### GET /health
-```json
-{"status": "ok"}
+User Query
+   ↓
+Query Router
+   ↓
+Domain RAG Pipeline
+   ↓
+Vector Search
+   ↓
+Relevant Document Retrieval
+   ↓
+LLM Answer Generation
 ```
 
 ---
 
-## 실행 방법
+## 3.3 Knowledge 문서 구성
 
-```bash
-# 1. 환경 변수 설정
-export OPENAI_API_KEY=your_api_key
+각 도메인별로 RAG 학습에 사용할 **knowledge 문서(.txt)** 를 생성한다.
 
-# 2. Docker Compose로 전체 서비스 실행
-docker-compose up --build
+예시 구조
 
-# 3. 브라우저 접속
-# 프론트엔드: http://localhost:8501
-# 백엔드 API: http://localhost:8000
+```
+knowledge/
+
+manual/
+equipment_manual.txt
+safety_manual.txt
+troubleshooting.txt
+
+hr/
+hr_policy.txt
+expense_policy.txt
+vacation_policy.txt
+
+it/
+vpn_troubleshooting.txt
+email_issue.txt
+
+sales/
+product_info.txt
+competitor_analysis.txt
+
+education/
+training_manual.txt
+process_guide.txt
+```
+
+문서는 RAG 처리 전 다음 단계로 변환된다.
+
+```
+Document
+   ↓
+Text Extraction
+   ↓
+Chunking
+   ↓
+Embedding
+   ↓
+Vector Database
 ```
 
 ---
 
-## 주요 특징 요약
+## 3.4 백엔드 AI 서비스
 
-- **자동 도메인 라우팅**: 사용자가 도메인을 선택하지 않아도 LLM이 질문 의도를 파악하여 적절한 RAG 파이프라인으로 자동 연결
-- **대화 컨텍스트 유지**: Thread ID 기반 세션 관리로 멀티턴 대화 지원
-- **참고 문서 출처 표시**: 모든 응답에 답변 근거가 된 지식 문서 파일명 제공
-- **멀티모달 지원**: 텍스트 질문과 현장 사진을 함께 분석
-- **확장 용이성**: 새 도메인 추가 시 knowledge 디렉토리에 txt 파일만 추가하면 자동 색인
-- **Docker 기반 배포**: 단일 명령으로 전체 서비스 실행 가능
+백엔드에서는 다음 기능을 수행한다.
+
+- RAG 파이프라인 실행
+- LLM 모델 호출
+- API 서버 제공
+- 프론트엔드 요청 처리
+
+권장 기술 스택
+
+- FastAPI
+- LangChain 또는 LlamaIndex
+- Vector Database (FAISS 등)
+
+---
+
+## 3.5 프론트엔드 연결
+
+프론트엔드는 챗 인터페이스를 제공한다.
+
+필수 기능
+
+- 사용자 질문 입력
+- 챗 응답 표시
+- 문서 출처 표시
+- 이미지 업로드
+
+---
+
+## 3.6 Docker 실행 환경
+
+전체 시스템은 Docker 기반으로 실행 가능해야 한다.
+
+다음 항목을 확인한다.
+
+- backend container
+- frontend container
+- vector db container
+
+필요 시 다음 파일을 수정한다.
+
+- Dockerfile
+- docker-compose.yml
+
+Docker Desktop 환경에서 실행 가능하도록 구성한다.
+
+---
+
+# 4. 테스트 시나리오 작성
+
+시스템 구현 후 기능 검증을 위해 **테스트 시나리오 문서**를 작성해야 한다.
+
+## 4.1 현장 매뉴얼 챗봇 테스트
+
+입력
+
+```
+3번 라인에서 압력 이상 알람 뜨면 어떻게 조치해야 해?
+```
+
+기대 결과
+
+- 관련 매뉴얼 검색
+- 단계별 대응 방법 설명
+
+---
+
+## 4.2 HR 챗봇 테스트
+
+입력
+
+```
+출장비 규정 뭐야?
+```
+
+기대 결과
+
+- 출장비 정책 설명
+- 관련 문서 출처 제공
+
+---
+
+## 4.3 IT 헬프데스크 테스트
+
+입력
+
+```
+VPN 접속이 안돼
+```
+
+기대 결과
+
+- VPN 문제 해결 절차 제공
+
+---
+
+## 4.4 영업 챗봇 테스트
+
+입력
+
+```
+A제품과 B제품 차이 설명해줘
+```
+
+기대 결과
+
+- 제품 기능 비교 제공
+
+---
+
+## 4.5 교육 챗봇 테스트
+
+입력
+
+```
+품질 검사 기준 뭐야?
+```
+
+기대 결과
+
+- 교육 자료 기반 설명 제공
+
+---
+
+# 5. 최종 결과물
+
+최종적으로 다음 항목들이 포함되어야 한다.
+
+1. 도메인별 RAG 챗봇 기능
+2. Query Router 구현
+3. Knowledge 문서 세트
+4. Backend AI 서비스
+5. Frontend 챗 인터페이스
+6. Docker 실행 환경
+7. 테스트 시나리오 문서
+
+최종 시스템은 **전사 업무 지식을 활용하는 RAG 기반 LLM 챗봇 서비스**로 동작해야 한다.
