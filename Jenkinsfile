@@ -25,14 +25,19 @@ pipeline {
 
     stage('push') {
       steps {
-        sh '''
-        docker login amdp-registry.skala-ai.com \
-        -u robot$skala26a-ai2 \
-        -p Va9M8WvbaoPa4oxpqFHMH4TH0h02GbTH
+        withCredentials([usernamePassword(
+          credentialsId: 'harbor-credentials',
+          usernameVariable: 'HARBOR_USER',
+          passwordVariable: 'HARBOR_PASS'
+        )]) {
+          sh '''
+          echo "$HARBOR_PASS" | docker login amdp-registry.skala-ai.com \
+          -u "$HARBOR_USER" --password-stdin
 
-        docker push amdp-registry.skala-ai.com/skala26a-ai2/my-backend:latest
-        docker push amdp-registry.skala-ai.com/skala26a-ai2/my-frontend:latest
-        '''
+          docker push amdp-registry.skala-ai.com/skala26a-ai2/my-backend:latest
+          docker push amdp-registry.skala-ai.com/skala26a-ai2/my-frontend:latest
+          '''
+        }
       }
     }
   }

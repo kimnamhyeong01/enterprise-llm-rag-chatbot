@@ -1,4 +1,22 @@
+version: '3.8'
+
 services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    container_name: jenkins
+    user: root
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    restart: always
+
   backend:
     build: ./backend 
     image: amdp-registry.skala-ai.com/skala25a/sk035-langgraph-rag-backend:1.0.0
@@ -30,3 +48,7 @@ services:
         condition: service_healthy
     environment:
       - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+
+# 🔥 반드시 services 밖
+volumes:
+  jenkins_home:
