@@ -20,8 +20,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Load .env file
+        env:
+          ENV_FILE_CONTENT: ${{ secrets.ENV_FILE }}
         run: |
-          echo "${{ secrets.ENV_FILE }}" > .env
+          printf '%s\n' "$ENV_FILE_CONTENT" > .env
           grep -v '^#' .env | grep -v '^[[:space:]]*$' | while IFS= read -r line; do
             echo "$line" >> $GITHUB_ENV
           done
