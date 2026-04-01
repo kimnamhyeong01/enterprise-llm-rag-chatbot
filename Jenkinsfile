@@ -142,7 +142,7 @@ EOF
           docker exec rag-backend curl -sf http://localhost:8000/health
           echo "Backend OK"
 
-          docker exec rag-frontend curl -sf -o /dev/null -w "%{http_code}" http://localhost:8501 | grep -q 200
+          docker exec rag-frontend python -c "import urllib.request; r = urllib.request.urlopen('http://localhost:8501'); exit(0 if r.status == 200 else 1)"
           echo "Frontend OK"
         """
       }
