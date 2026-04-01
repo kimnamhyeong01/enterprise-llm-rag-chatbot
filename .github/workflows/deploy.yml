@@ -15,28 +15,21 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    env:
+      HARBOR_REGISTRY: ${{ secrets.HARBOR_REGISTRY }}
+      HARBOR_PROJECT: ${{ secrets.HARBOR_PROJECT }}
+      HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+      HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
-      - name: Load .env file
-        env:
-          ENV_FILE_CONTENT: ${{ secrets.ENV_FILE }}
-        run: |
-          printf '%s\n' "$ENV_FILE_CONTENT" > .env
-          python3 -c "
-import os, re
-with open('.env') as f:
-    for line in f:
-        line = line.rstrip('\n')
-        if not line or line.startswith('#') or '=' not in line:
-            continue
-        key, _, value = line.partition('=')
-        key = key.strip()
-        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', key):
-            with open(os.environ['GITHUB_ENV'], 'a') as genv:
-                genv.write(f'{key}<<GHEOF\n{value}\nGHEOF\n')
-          "
 
       - name: Set image metadata
         run: |
@@ -49,13 +42,6 @@ with open('.env') as f:
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
           echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
           echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> $GITHUB_ENV
-
-      - name: Debug Harbor vars
-        run: |
-          echo "REGISTRY=[${HARBOR_REGISTRY}]"
-          echo "PROJECT=[${HARBOR_PROJECT}]"
-          echo "USERNAME=[${HARBOR_USERNAME}]"
-          echo "PASSWORD length=${#HARBOR_PASSWORD}"
 
       - name: Log in to Harbor
         run: |
@@ -85,9 +71,9 @@ with open('.env') as f:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Update kubeconfig for EKS
         run: |
