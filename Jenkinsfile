@@ -78,6 +78,8 @@ pipeline {
           )
         ]) {
           sh """
+            set -e
+
             echo "Deploying..."
 
             # .env 생성
@@ -87,18 +89,11 @@ pipeline {
             echo \$HARBOR_PASS | docker login ${REGISTRY} \
               -u \$HARBOR_USER --password-stdin
 
-            # 이미지 pull
+            # 최신 이미지 pull
             docker pull ${BACKEND_IMG}:${IMAGE_TAG}
             docker pull ${FRONTEND_IMG}:${IMAGE_TAG}
 
-            # 포트 점유 컨테이너 제거
-            docker rm -f \$(docker ps -q --filter "publish=8000") || true
-            docker rm -f \$(docker ps -q --filter "publish=8501") || true
-
-            # 이름 기반 제거
-            docker rm -f rag-backend rag-frontend || true
-
-            # compose 생성
+            # compose 파일 생성
             cat > docker-compose.deploy.yml << "EOF"
 services:
   backend:
@@ -132,7 +127,8 @@ services:
     restart: unless-stopped
 EOF
 
-            docker compose -f docker-compose.deploy.yml up -d --remove-orphans
+            # 🔥 핵심: rm 제거 + 안전한 재생성
+            docker compose -f docker-compose.deploy.yml up -d --force-recreate --remove-orphans
           """
         }
       }
@@ -165,12 +161,7 @@ EOF
         docker pull ${BACKEND_IMG}:latest
         docker pull ${FRONTEND_IMG}:latest
 
-        docker ps -q --filter "publish=8000" | xargs -r docker rm -f || true
-        docker ps -q --filter "publish=8501" | xargs -r docker rm -f || true
-
-        docker rm -f rag-backend rag-frontend || true
-
-        docker compose -f docker-compose.deploy.yml up -d
+        docker compose -f docker-compose.deploy.yml up -d --force-recreate
       """
     }
 
