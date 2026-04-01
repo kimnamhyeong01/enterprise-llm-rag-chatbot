@@ -62,7 +62,7 @@ pipeline {
       }
     }
 
-    // ────────────── CD (로컬 실행) ──────────────
+    // ────────────── CD ──────────────
 
     stage('deploy') {
       steps {
@@ -72,7 +72,7 @@ pipeline {
           passwordVariable: 'HARBOR_PASS'
         )]) {
           sh """
-            echo "Deploying locally (no SSH)..."
+            echo "Deploying..."
 
             echo \$HARBOR_PASS | docker login ${REGISTRY} \
               -u \$HARBOR_USER --password-stdin
@@ -80,17 +80,29 @@ pipeline {
             docker pull ${BACKEND_IMG}:${IMAGE_TAG}
             docker pull ${FRONTEND_IMG}:${IMAGE_TAG}
 
+            # ✅ 기존 서비스만 제거 (Jenkins 유지)
+            docker rm -f rag-backend rag-frontend || true
+
+            # compose 파일 생성
             cat > docker-compose.deploy.yml << "EOF"
-version: "3.8"
 services:
   backend:
     image: ${BACKEND_IMG}:${IMAGE_TAG}
     container_name: rag-backend
     ports:
       - "8000:8000"
-    environment:
-      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+    volumes:
+      - ./knowledge:/app/knowledge
+      - ./docs:/app/docs
+      - ./chroma_db:/app/chroma_db
+    env_file:
+      - .env
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   frontend:
     image: ${FRONTEND_IMG}:${IMAGE_TAG}
@@ -98,7 +110,8 @@ services:
     ports:
       - "8501:8501"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       - BACKEND_URL=http://backend:8000
     restart: unless-stopped
@@ -112,16 +125,15 @@ EOF
 
     stage('verify') {
       steps {
-        sh '''
-          echo "Waiting for services..."
-          sleep 15
+        sh 'sleep 20'
 
-          curl -f http://localhost:8000/health
+        sh """
+          curl --retry 5 --retry-delay 5 -f http://localhost:8000/health
           echo "Backend OK"
 
-          curl -f -o /dev/null -w "%{http_code}" http://localhost:8501 | grep -q 200
+          curl --retry 3 --retry-delay 5 -f -o /dev/null -w "%{http_code}" http://localhost:8501 | grep -q 200
           echo "Frontend OK"
-        '''
+        """
       }
     }
   }
@@ -135,10 +147,12 @@ EOF
       echo "배포 실패 - 롤백 시도"
 
       sh """
-        docker pull ${BACKEND_IMG}:latest || true
-        docker pull ${FRONTEND_IMG}:latest || true
+        docker pull ${BACKEND_IMG}:latest
+        docker pull ${FRONTEND_IMG}:latest
 
-        docker compose -f docker-compose.deploy.yml up -d || true
+        docker rm -f rag-backend rag-frontend || true
+
+        docker compose -f docker-compose.deploy.yml up -d
       """
     }
 
