@@ -18,7 +18,7 @@ spec:
 
         # 🔹 backend
         - name: backend
-          image: amdp-registry.skala-ai.com/skala26a-ai2/sk035-backend:latest
+          image: __BACKEND_IMAGE__
           ports:
             - containerPort: 8000
           env:
@@ -30,7 +30,7 @@ spec:
 
         # 🔹 frontend
         - name: frontend
-          image: amdp-registry.skala-ai.com/skala26a-ai2/sk035-frontend:latest
+          image: __FRONTEND_IMAGE__
           ports:
             - containerPort: 8501
           env:
