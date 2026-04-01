@@ -40,6 +40,13 @@ jobs:
           echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
           echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> $GITHUB_ENV
 
+      - name: Debug Harbor vars
+        run: |
+          echo "REGISTRY=[${HARBOR_REGISTRY}]"
+          echo "PROJECT=[${HARBOR_PROJECT}]"
+          echo "USERNAME=[${HARBOR_USERNAME}]"
+          echo "PASSWORD length=${#HARBOR_PASSWORD}"
+
       - name: Log in to Harbor
         run: |
           echo "${HARBOR_PASSWORD}" | docker login ${HARBOR_REGISTRY} -u "${HARBOR_USERNAME}" --password-stdin
