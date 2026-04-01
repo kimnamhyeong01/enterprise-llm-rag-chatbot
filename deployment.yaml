@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-app
+  template:
+    metadata:
+      labels:
+        app: rag-app
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+
+        # 🔹 backend
+        - name: backend
+          image: amdp-registry.skala-ai.com/skala26a-ai2/my-backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-secret
+                  key: OPENAI_API_KEY
+
+        # 🔹 frontend
+        - name: frontend
+          image: amdp-registry.skala-ai.com/skala26a-ai2/my-frontend:latest
+          ports:
+            - containerPort: 8501
+          env:
+            - name: BACKEND_URL
+              value: http://localhost:8000
