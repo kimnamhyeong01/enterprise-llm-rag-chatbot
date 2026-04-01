@@ -165,8 +165,8 @@ EOF
         docker pull ${BACKEND_IMG}:latest
         docker pull ${FRONTEND_IMG}:latest
 
-        docker rm -f \$(docker ps -q --filter "publish=8000") || true
-        docker rm -f \$(docker ps -q --filter "publish=8501") || true
+        docker ps -q --filter "publish=8000" | xargs -r docker rm -f || true
+        docker ps -q --filter "publish=8501" | xargs -r docker rm -f || true
 
         docker rm -f rag-backend rag-frontend || true
 

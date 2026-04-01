@@ -20,7 +20,7 @@ services:
   backend:
     build: ./backend 
     image: amdp-registry.skala-ai.com/skala25a/sk035-langgraph-rag-backend:1.0.0
-    container_name: langgraph-rag-backend
+    container_name: rag-backend
     volumes:
       - ./backend/knowledge:/app/knowledge
       - ./backend/docs:/app/docs
@@ -40,7 +40,7 @@ services:
   frontend:
     build: ./frontend 
     image: amdp-registry.skala-ai.com/skala25a/sk035-langgraph-rag-frontend:1.0.0
-    container_name: langgraph-rag-frontend
+    container_name: rag-frontend
     ports:
       - "8501:8501"
     depends_on:
