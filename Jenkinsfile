@@ -66,13 +66,22 @@ pipeline {
 
     stage('deploy') {
       steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'harbor-cred',
-          usernameVariable: 'HARBOR_USER',
-          passwordVariable: 'HARBOR_PASS'
-        )]) {
+        withCredentials([
+          usernamePassword(
+            credentialsId: 'harbor-cred',
+            usernameVariable: 'HARBOR_USER',
+            passwordVariable: 'HARBOR_PASS'
+          ),
+          string(
+            credentialsId: 'openai-api-key',
+            variable: 'OPENAI_API_KEY'
+          )
+        ]) {
           sh """
             echo "Deploying..."
+
+            # ✅ .env 생성 (핵심)
+            echo "OPENAI_API_KEY=\$OPENAI_API_KEY" > .env
 
             echo \$HARBOR_PASS | docker login ${REGISTRY} \
               -u \$HARBOR_USER --password-stdin
