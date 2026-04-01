@@ -7,7 +7,6 @@ pipeline {
     BACKEND_IMG  = "${REGISTRY}/${PROJECT}/my-backend"
     FRONTEND_IMG = "${REGISTRY}/${PROJECT}/my-frontend"
     IMAGE_TAG    = "${BUILD_NUMBER}"
-    DEPLOY_DIR   = '/opt/rag-chatbot'
   }
 
   stages {
@@ -63,7 +62,7 @@ pipeline {
       }
     }
 
-    // ────────────── CD ──────────────
+    // ────────────── CD (로컬 실행) ──────────────
 
     stage('deploy') {
       steps {
@@ -72,15 +71,16 @@ pipeline {
           usernameVariable: 'HARBOR_USER',
           passwordVariable: 'HARBOR_PASS'
         )]) {
-          sshagent(credentials: ['deploy-server-ssh']) {
-            sh """
-              ssh -o StrictHostKeyChecking=no deploy@\${DEPLOY_HOST} '
-                set -e
+          sh """
+            echo "Deploying locally (no SSH)..."
 
-                mkdir -p ${DEPLOY_DIR}
-                cd ${DEPLOY_DIR}
+            echo \$HARBOR_PASS | docker login ${REGISTRY} \
+              -u \$HARBOR_USER --password-stdin
 
-                cat > docker-compose.deploy.yml << "EOF"
+            docker pull ${BACKEND_IMG}:${IMAGE_TAG}
+            docker pull ${FRONTEND_IMG}:${IMAGE_TAG}
+
+            cat > docker-compose.deploy.yml << "EOF"
 version: "3.8"
 services:
   backend:
@@ -88,20 +88,9 @@ services:
     container_name: rag-backend
     ports:
       - "8000:8000"
-    volumes:
-      - ./knowledge:/app/knowledge
-      - ./docs:/app/docs
-      - ./chroma_db:/app/chroma_db
     environment:
       - OPENAI_API_KEY=\${OPENAI_API_KEY}
-      - OPENAI_MODEL=\${OPENAI_MODEL:-gpt-4o-mini}
-      - OPENAI_EMBEDDING_MODEL=\${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   frontend:
     image: ${FRONTEND_IMG}:${IMAGE_TAG}
@@ -109,42 +98,30 @@ services:
     ports:
       - "8501:8501"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     environment:
       - BACKEND_URL=http://backend:8000
     restart: unless-stopped
 EOF
 
-                echo "\$HARBOR_PASS" | docker login ${REGISTRY} \
-                  -u "\$HARBOR_USER" --password-stdin
-
-                docker pull ${BACKEND_IMG}:${IMAGE_TAG}
-                docker pull ${FRONTEND_IMG}:${IMAGE_TAG}
-
-                docker compose -f docker-compose.deploy.yml up -d --remove-orphans
-              '
-            """
-          }
+            docker compose -f docker-compose.deploy.yml up -d --remove-orphans
+          """
         }
       }
     }
 
     stage('verify') {
       steps {
-        sh 'sleep 20'
+        sh '''
+          echo "Waiting for services..."
+          sleep 15
 
-        sshagent(credentials: ['deploy-server-ssh']) {
-          sh """
-            ssh -o StrictHostKeyChecking=no deploy@\${DEPLOY_HOST} '
-              curl --retry 5 --retry-delay 5 -f http://localhost:8000/health
-              echo "Backend OK"
+          curl -f http://localhost:8000/health
+          echo "Backend OK"
 
-              curl --retry 3 --retry-delay 5 -f -o /dev/null -w "%{http_code}" http://localhost:8501 | grep -q 200
-              echo "Frontend OK"
-            '
-          """
-        }
+          curl -f -o /dev/null -w "%{http_code}" http://localhost:8501 | grep -q 200
+          echo "Frontend OK"
+        '''
       }
     }
   }
@@ -157,22 +134,12 @@ EOF
     failure {
       echo "배포 실패 - 롤백 시도"
 
-      sshagent(credentials: ['deploy-server-ssh']) {
-        sh """
-          ssh -o StrictHostKeyChecking=no deploy@\${DEPLOY_HOST} '
-            cd ${DEPLOY_DIR}
+      sh """
+        docker pull ${BACKEND_IMG}:latest || true
+        docker pull ${FRONTEND_IMG}:latest || true
 
-            PREV=\$((${BUILD_NUMBER} - 1))
-            if [ "\$PREV" -gt 0 ]; then
-              docker pull ${BACKEND_IMG}:latest
-              docker pull ${FRONTEND_IMG}:latest
-
-              docker compose -f docker-compose.deploy.yml up -d
-              echo "롤백 완료 (latest)"
-            fi
-          '
-        """
-      }
+        docker compose -f docker-compose.deploy.yml up -d || true
+      """
     }
 
     always {
