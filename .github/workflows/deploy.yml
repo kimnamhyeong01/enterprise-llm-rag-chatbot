@@ -24,9 +24,19 @@ jobs:
           ENV_FILE_CONTENT: ${{ secrets.ENV_FILE }}
         run: |
           printf '%s\n' "$ENV_FILE_CONTENT" > .env
-          grep -v '^#' .env | grep -v '^[[:space:]]*$' | while IFS= read -r line; do
-            echo "$line" >> $GITHUB_ENV
-          done
+          python3 -c "
+import os, re
+with open('.env') as f:
+    for line in f:
+        line = line.rstrip('\n')
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        key = key.strip()
+        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', key):
+            with open(os.environ['GITHUB_ENV'], 'a') as genv:
+                genv.write(f'{key}<<GHEOF\n{value}\nGHEOF\n')
+          "
 
       - name: Set image metadata
         run: |
