@@ -67,68 +67,21 @@ pipeline {
     stage('deploy') {
       steps {
         withCredentials([
-          usernamePassword(
-            credentialsId: 'harbor-cred',
-            usernameVariable: 'HARBOR_USER',
-            passwordVariable: 'HARBOR_PASS'
-          ),
-          string(
-            credentialsId: 'openai-api-key',
-            variable: 'OPENAI_API_KEY'
-          )
+          file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')
         ]) {
           sh """
             set -e
+            export KUBECONFIG=\$KUBECONFIG
 
-            echo "Deploying..."
+            echo "Deploying to Kubernetes..."
 
-            # .env 생성
-            echo "OPENAI_API_KEY=\$OPENAI_API_KEY" > .env
+            # 이미지 태그를 현재 빌드 번호로 업데이트
+            kubectl set image deployment/rag-app \
+              backend=${BACKEND_IMG}:${IMAGE_TAG} \
+              frontend=${FRONTEND_IMG}:${IMAGE_TAG}
 
-            # Harbor 로그인
-            echo \$HARBOR_PASS | docker login ${REGISTRY} \
-              -u \$HARBOR_USER --password-stdin
-
-            # 최신 이미지 pull
-            docker pull ${BACKEND_IMG}:${IMAGE_TAG}
-            docker pull ${FRONTEND_IMG}:${IMAGE_TAG}
-
-            # compose 파일 생성
-            cat > docker-compose.deploy.yml << "EOF"
-services:
-  backend:
-    image: ${BACKEND_IMG}:${IMAGE_TAG}
-    container_name: rag-backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./knowledge:/app/knowledge
-      - ./docs:/app/docs
-      - ./chroma_db:/app/chroma_db
-    env_file:
-      - .env
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  frontend:
-    image: ${FRONTEND_IMG}:${IMAGE_TAG}
-    container_name: rag-frontend
-    ports:
-      - "8501:8501"
-    depends_on:
-      backend:
-        condition: service_healthy
-    environment:
-      - BACKEND_URL=http://backend:8000
-    restart: unless-stopped
-EOF
-
-            # 🔥 핵심: rm 제거 + 안전한 재생성
-            docker compose -f docker-compose.deploy.yml up -d --force-recreate --remove-orphans
+            # 롤아웃 완료까지 대기 (최대 3분)
+            kubectl rollout status deployment/rag-app --timeout=180s
           """
         }
       }
@@ -136,15 +89,19 @@ EOF
 
     stage('verify') {
       steps {
-        sh 'sleep 20'
+        withCredentials([
+          file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')
+        ]) {
+          sh """
+            export KUBECONFIG=\$KUBECONFIG
 
-        sh """
-          docker exec rag-backend curl -sf http://localhost:8000/health
-          echo "Backend OK"
+            kubectl exec deploy/rag-app -c backend -- curl -sf http://localhost:8000/health
+            echo "Backend OK"
 
-          docker exec rag-frontend python -c "import urllib.request; r = urllib.request.urlopen('http://localhost:8501'); exit(0 if r.status == 200 else 1)"
-          echo "Frontend OK"
-        """
+            kubectl exec deploy/rag-app -c frontend -- python -c "import urllib.request; r = urllib.request.urlopen('http://localhost:8501'); exit(0 if r.status == 200 else 1)"
+            echo "Frontend OK"
+          """
+        }
       }
     }
   }
@@ -155,14 +112,14 @@ EOF
     }
 
     failure {
-      echo "배포 실패 - 롤백 시도"
+      echo "배포 실패 - 이전 버전으로 롤백"
 
-      sh """
-        docker pull ${BACKEND_IMG}:latest
-        docker pull ${FRONTEND_IMG}:latest
-
-        docker compose -f docker-compose.deploy.yml up -d --force-recreate
-      """
+      withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+        sh """
+          export KUBECONFIG=\$KUBECONFIG
+          kubectl rollout undo deployment/rag-app
+        """
+      }
     }
 
     always {
