@@ -80,16 +80,22 @@ pipeline {
           sh """
             echo "Deploying..."
 
-            # ✅ .env 생성 (핵심)
+            # ✅ .env 생성
             echo "OPENAI_API_KEY=\$OPENAI_API_KEY" > .env
 
+            # Harbor 로그인
             echo \$HARBOR_PASS | docker login ${REGISTRY} \
               -u \$HARBOR_USER --password-stdin
 
+            # 최신 이미지 pull
             docker pull ${BACKEND_IMG}:${IMAGE_TAG}
             docker pull ${FRONTEND_IMG}:${IMAGE_TAG}
 
-            # ✅ 기존 서비스만 제거 (Jenkins 유지)
+            # ✅ 포트 점유 컨테이너 제거 (핵심)
+            docker rm -f \$(docker ps -q --filter "publish=8000") || true
+            docker rm -f \$(docker ps -q --filter "publish=8501") || true
+
+            # 이름 기반도 정리
             docker rm -f rag-backend rag-frontend || true
 
             # compose 파일 생성
@@ -126,6 +132,7 @@ services:
     restart: unless-stopped
 EOF
 
+            # 배포 실행
             docker compose -f docker-compose.deploy.yml up -d --remove-orphans
           """
         }
@@ -158,6 +165,10 @@ EOF
       sh """
         docker pull ${BACKEND_IMG}:latest
         docker pull ${FRONTEND_IMG}:latest
+
+        # 포트 점유 제거
+        docker rm -f \$(docker ps -q --filter "publish=8000") || true
+        docker rm -f \$(docker ps -q --filter "publish=8501") || true
 
         docker rm -f rag-backend rag-frontend || true
 
