@@ -4,8 +4,8 @@ pipeline {
   environment {
     REGISTRY     = 'amdp-registry.skala-ai.com'
     PROJECT      = 'skala26a-ai2'
-    BACKEND_IMG  = "${REGISTRY}/${PROJECT}/my-backend"
-    FRONTEND_IMG = "${REGISTRY}/${PROJECT}/my-frontend"
+    BACKEND_IMG  = "${REGISTRY}/${PROJECT}/sk035-backend"
+    FRONTEND_IMG = "${REGISTRY}/${PROJECT}/sk035-frontend"
     IMAGE_TAG    = "${BUILD_NUMBER}"
   }
 
@@ -15,13 +15,13 @@ pipeline {
 
     stage('build-backend') {
       steps {
-        sh "docker build -t my-backend:${IMAGE_TAG} ./backend"
+        sh "docker build -t sk035-backend:${IMAGE_TAG} ./backend"
       }
     }
 
     stage('build-frontend') {
       steps {
-        sh "docker build -t my-frontend:${IMAGE_TAG} ./frontend"
+        sh "docker build -t sk035-frontend:${IMAGE_TAG} ./frontend"
       }
     }
 
@@ -31,7 +31,7 @@ pipeline {
           echo "Running backend smoke test..."
           docker run --rm \
             -e OPENAI_API_KEY=dummy \
-            my-backend:${IMAGE_TAG} \
+            sk035-backend:${IMAGE_TAG} \
             python -c "from main import app; print('Import OK')"
         '''
       }
@@ -48,10 +48,10 @@ pipeline {
             echo \$HARBOR_PASS | docker login ${REGISTRY} \
               -u \$HARBOR_USER --password-stdin
 
-            docker tag my-backend:${IMAGE_TAG}  ${BACKEND_IMG}:${IMAGE_TAG}
-            docker tag my-backend:${IMAGE_TAG}  ${BACKEND_IMG}:latest
-            docker tag my-frontend:${IMAGE_TAG} ${FRONTEND_IMG}:${IMAGE_TAG}
-            docker tag my-frontend:${IMAGE_TAG} ${FRONTEND_IMG}:latest
+            docker tag sk035-backend:${IMAGE_TAG}  ${BACKEND_IMG}:${IMAGE_TAG}
+            docker tag sk035-backend:${IMAGE_TAG}  ${BACKEND_IMG}:latest
+            docker tag sk035-frontend:${IMAGE_TAG} ${FRONTEND_IMG}:${IMAGE_TAG}
+            docker tag sk035-frontend:${IMAGE_TAG} ${FRONTEND_IMG}:latest
 
             docker push ${BACKEND_IMG}:${IMAGE_TAG}
             docker push ${BACKEND_IMG}:latest
@@ -80,25 +80,25 @@ pipeline {
           sh """
             echo "Deploying..."
 
-            # ✅ .env 생성
+            # .env 생성
             echo "OPENAI_API_KEY=\$OPENAI_API_KEY" > .env
 
             # Harbor 로그인
             echo \$HARBOR_PASS | docker login ${REGISTRY} \
               -u \$HARBOR_USER --password-stdin
 
-            # 최신 이미지 pull
+            # 이미지 pull
             docker pull ${BACKEND_IMG}:${IMAGE_TAG}
             docker pull ${FRONTEND_IMG}:${IMAGE_TAG}
 
-            # ✅ 포트 점유 컨테이너 제거 (핵심)
+            # 포트 점유 컨테이너 제거
             docker rm -f \$(docker ps -q --filter "publish=8000") || true
             docker rm -f \$(docker ps -q --filter "publish=8501") || true
 
-            # 이름 기반도 정리
+            # 이름 기반 제거
             docker rm -f rag-backend rag-frontend || true
 
-            # compose 파일 생성
+            # compose 생성
             cat > docker-compose.deploy.yml << "EOF"
 services:
   backend:
@@ -132,7 +132,6 @@ services:
     restart: unless-stopped
 EOF
 
-            # 배포 실행
             docker compose -f docker-compose.deploy.yml up -d --remove-orphans
           """
         }
@@ -166,7 +165,6 @@ EOF
         docker pull ${BACKEND_IMG}:latest
         docker pull ${FRONTEND_IMG}:latest
 
-        # 포트 점유 제거
         docker rm -f \$(docker ps -q --filter "publish=8000") || true
         docker rm -f \$(docker ps -q --filter "publish=8501") || true
 
@@ -178,8 +176,8 @@ EOF
 
     always {
       sh """
-        docker rmi my-backend:${IMAGE_TAG} || true
-        docker rmi my-frontend:${IMAGE_TAG} || true
+        docker rmi sk035-backend:${IMAGE_TAG} || true
+        docker rmi sk035-frontend:${IMAGE_TAG} || true
       """
     }
   }
