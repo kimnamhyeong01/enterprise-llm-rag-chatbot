@@ -139,10 +139,10 @@ EOF
         sh 'sleep 20'
 
         sh """
-          curl --retry 5 --retry-delay 5 -f http://localhost:8000/health
+          docker exec rag-backend curl -sf http://localhost:8000/health
           echo "Backend OK"
 
-          curl --retry 3 --retry-delay 5 -f -o /dev/null -w "%{http_code}" http://localhost:8501 | grep -q 200
+          docker exec rag-frontend curl -sf -o /dev/null -w "%{http_code}" http://localhost:8501 | grep -q 200
           echo "Frontend OK"
         """
       }
